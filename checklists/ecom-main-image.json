@@ -1,0 +1,161 @@
+{
+  "$schema": "vision-qc-agent/checklist@1",
+  "id": "ecom-main-image",
+  "name": "电商主图质检清单",
+  "version": "1.0.0",
+  "description": "面向平台主图规范与视觉质量的 12 项检查清单。合规项对接平台硬性规范，质量项对接视觉专业度，信息项对接转化率。",
+  "meta": {
+    "locale": "zh-CN",
+    "platform": "通用电商平台主图",
+    "category": "服饰 / 鞋包 / 家居通用"
+  },
+  "rules": [
+    {
+      "id": "R01",
+      "group": "合规底线",
+      "title": "背景应为纯白或接近纯白",
+      "why": "多数平台主图要求白底（RGB 255,255,255 附近），杂色背景会被降权或直接驳回。",
+      "fact": "backgroundWhiteness",
+      "op": ">=",
+      "value": 92,
+      "unit": "%",
+      "severity": "high",
+      "suggest": "用钢笔工具抠净背景并铺 #FFFFFF；若为实拍，使用白幕 + 双灯压掉环境色。",
+      "source": "pipeline"
+    },
+    {
+      "id": "R02",
+      "group": "合规底线",
+      "title": "画面不得出现营销文字",
+      "why": "促销词、价格、二维码属于平台明令禁止的主图元素，会被判违规。",
+      "fact": "textInImage",
+      "op": "in",
+      "value": ["none", "minimal"],
+      "severity": "high",
+      "suggest": "把促销信息移到第二张主图或详情页；主图只保留商品本体，文字覆盖控制在 10% 以内。",
+      "source": "model"
+    },
+    {
+      "id": "R03",
+      "group": "合规底线",
+      "title": "不得含未授权水印或第三方 Logo",
+      "why": "水印与竞品 Logo 会触发知识产权投诉，也可能被判为站外引流。",
+      "fact": "hasWatermark",
+      "op": "==",
+      "value": false,
+      "severity": "high",
+      "suggest": "移除水印层；确需品牌露出时使用平台备案的品牌标识。",
+      "source": "model"
+    },
+    {
+      "id": "R04",
+      "group": "质量标准",
+      "title": "有效像素不低于 800×800",
+      "why": "低于该尺寸无法开启放大镜，且在主图墙中显得模糊，直接影响点击率。",
+      "fact": "minSide",
+      "op": ">=",
+      "value": 800,
+      "unit": "px",
+      "severity": "high",
+      "suggest": "重出图至 1000×1000 以上，并保留 1:1 方图版本。",
+      "source": "pipeline"
+    },
+    {
+      "id": "R05",
+      "group": "质量标准",
+      "title": "主体占比不低于 60%",
+      "why": "主体过小会让商品在缩略图里失去辨识度，是主图最常见的转化率杀手。",
+      "fact": "productCoverage",
+      "op": ">=",
+      "value": 60,
+      "unit": "%",
+      "severity": "medium",
+      "suggest": "裁剪放大主体，或改拍时让商品占满画面安全区。",
+      "source": "model"
+    },
+    {
+      "id": "R06",
+      "group": "质量标准",
+      "title": "画幅应为 1:1 方图",
+      "why": "方图在搜索列表、推荐流中裁切最少；非方图会被系统二次裁切导致主体被切。",
+      "fact": "aspectLabel",
+      "op": "==",
+      "value": "square-1x1",
+      "severity": "medium",
+      "suggest": "输出 1:1 版本（如 1200×1200），主体四周留出 5%-8% 安全边距。",
+      "source": "pipeline"
+    },
+    {
+      "id": "R07",
+      "group": "质量标准",
+      "title": "布光自然、无明显光比问题",
+      "why": "过曝或死黑会丢失面料质感，是“看起来像地摊货”的主因。",
+      "fact": "lightingQuality",
+      "op": "in",
+      "value": ["good", "flat"],
+      "severity": "medium",
+      "suggest": "用柔光箱做主光 + 反光板补暗部，把最亮区压到 240 以下。",
+      "source": "model"
+    },
+    {
+      "id": "R08",
+      "group": "质量细节",
+      "title": "画面无可见瑕疵（线头/污渍/褶皱）",
+      "why": "细节瑕疵会在放大镜下被放大，是退货与差评的高频来源。",
+      "fact": "detailFlaws",
+      "op": "==",
+      "value": false,
+      "severity": "high",
+      "suggest": "熨烫定形后重拍；无法重拍时用修复画笔点掉，注意保留纹理。",
+      "source": "model"
+    },
+    {
+      "id": "R09",
+      "group": "质量细节",
+      "title": "清晰度达标（无模糊）",
+      "why": "缩略图时代的清晰度直接决定“专业感”，明显模糊的主图无法用于投放。",
+      "fact": "blurRisk",
+      "op": "in",
+      "value": ["none", "slight"],
+      "severity": "medium",
+      "suggest": "提高快门至 1/125s 以上或上三脚架，必要时用高反差保留做适度锐化。",
+      "source": "model"
+    },
+    {
+      "id": "R10",
+      "group": "信息完整",
+      "title": "色差风险需为低",
+      "why": "色差是服饰类目退货第一诱因，主图即“所见即所得”的承诺。",
+      "fact": "colorAccuracyRisk",
+      "op": "==",
+      "value": "low",
+      "severity": "medium",
+      "suggest": "拍摄时放入灰卡并后期校准白平衡；深色面料单独补拍一张。",
+      "source": "model"
+    },
+    {
+      "id": "R11",
+      "group": "信息完整",
+      "title": "商品品类与关键细节可识别",
+      "why": "模型/买家需要在 1 秒内判断“这是什么、什么材质”。",
+      "fact": "detailsVisible",
+      "op": "==",
+      "value": true,
+      "severity": "medium",
+      "suggest": "补一张面料特写作为副图，主图保证主体完整、正面朝向镜头。",
+      "source": "model"
+    },
+    {
+      "id": "R12",
+      "group": "信息完整",
+      "title": "背景不得有无关物体或杂乱元素",
+      "why": "杂乱背景会分散注意力，也让抠图与白底化处理变困难。",
+      "fact": "hasExtraObjects",
+      "op": "==",
+      "value": false,
+      "severity": "low",
+      "suggest": "清空拍摄现场杂物；道具仅保留与商品强相关的 1 件，并置于次要位置。",
+      "source": "model"
+    }
+  ]
+}

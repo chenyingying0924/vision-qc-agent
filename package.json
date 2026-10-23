@@ -1,0 +1,40 @@
+{
+  "name": "vision-qc-agent",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "AI visual QC / image-insight agent — checklist-driven multimodal inspection for e-commerce product images.",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "start": "node src/server.mjs",
+    "dev": "node --watch src/server.mjs",
+    "cli": "node src/cli.mjs",
+    "mcp": "node src/mcp/server.mjs",
+    "samples": "node scripts/make-samples.mjs",
+    "samples:live": "node scripts/make-samples.mjs --live",
+    "test": "node --test test/core.test.mjs test/extensions.test.mjs",
+    "test:mcp": "node test/mcp-probe.mjs",
+    "test:dsh": "node test/dsh-mcp-compat.mjs",
+    "test:ui": "node test/ui-e2e.mjs",
+    "install:dsh": "node scripts/install-dsh-integration.mjs"
+  },
+  "dependencies": {},
+  "keywords": [
+    "multimodal",
+    "vision",
+    "qc",
+    "agent",
+    "e-commerce"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chenyingying0924/vision-qc-agent.git"
+  },
+  "homepage": "https://github.com/chenyingying0924/vision-qc-agent#readme",
+  "bugs": {
+    "url": "https://github.com/chenyingying0924/vision-qc-agent/issues"
+  }
+}

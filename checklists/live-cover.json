@@ -1,0 +1,151 @@
+{
+  "$schema": "vision-qc-agent/checklist@1",
+  "id": "live-cover",
+  "name": "直播封面质检清单",
+  "version": "1.0.0",
+  "description": "面向直播间封面的 11 项质检清单。封面在手机上只有指尖大小，因此判据整体比主图更严：主体更大、文字更少、分辨率更高。",
+  "meta": {
+    "locale": "zh-CN",
+    "platform": "直播推荐流封面",
+    "category": "服饰 / 鞋包 / 家居通用",
+    "mediaType": "live-cover-thumbnail"
+  },
+  "rules": [
+    {
+      "id": "R01",
+      "group": "合规底线",
+      "title": "不得出现联系方式或二维码",
+      "why": "直播封面是公域流量入口，露出微信、电话、二维码会被判站外引流，轻则限流重则封禁直播权限。",
+      "fact": "hasContactInfo",
+      "op": "==",
+      "value": false,
+      "severity": "high",
+      "suggest": "封面只保留主播主体与一句卖点；引流信息放到直播间贴片或口播，不要印在封面上。",
+      "source": "model"
+    },
+    {
+      "id": "R02",
+      "group": "合规底线",
+      "title": "不得含未授权水印或第三方 Logo",
+      "why": "封面常从素材站或达人处转用，带水印的封面会触发侵权投诉，也稀释自家品牌识别。",
+      "fact": "hasWatermark",
+      "op": "==",
+      "value": false,
+      "severity": "high",
+      "suggest": "使用自有拍摄素材重新出图；确需品牌露出时只放已备案的品牌标识，并统一放在角落。",
+      "source": "model"
+    },
+    {
+      "id": "R03",
+      "group": "合规底线",
+      "title": "封面文字必须是卖点，不得为违规促销价格",
+      "why": "价格、折扣、“全网最低”等文案在封面上属于违规促销承诺，也容易因价格变动造成投诉；封面文字应传达“这场直播卖什么”。",
+      "fact": "textIsPromotional",
+      "op": "==",
+      "value": false,
+      "severity": "high",
+      "suggest": "把“9.9 秒杀”改为“秋冬新款外套专场”这类品类卖点；价格与优惠只在直播间内以官方贴纸呈现。",
+      "source": "model"
+    },
+    {
+      "id": "R04",
+      "group": "信息完整",
+      "title": "文字量极少，不遮挡主体",
+      "why": "封面缩到 100px 宽时，多于两三个字的文字会糊成色块，既读不懂又挡住主播和商品，是封面点击率的主要杀手。",
+      "fact": "textInImage",
+      "op": "in",
+      "value": ["none", "minimal"],
+      "severity": "high",
+      "suggest": "文字压到 6 个字以内（如“羽绒服专场”），放在上方或下方留白区，不与人脸和主商品重叠。",
+      "source": "model"
+    },
+    {
+      "id": "R05",
+      "group": "信息完整",
+      "title": "画幅适合封面（正方形或明确比例）",
+      "why": "直播推荐流以正方形卡片为主，非方图会被系统居中裁切，导致文字被切掉、主体偏离中心。",
+      "fact": "aspectLabel",
+      "op": "in",
+      "value": ["square-1x1", "portrait-4x5", "portrait-3x4"],
+      "severity": "medium",
+      "suggest": "主投版本按 1:1 输出（建议 1080×1080），另存一版 3:4 备用；主体与文字都放进中心安全区。",
+      "source": "pipeline"
+    },
+    {
+      "id": "R06",
+      "group": "质量标准",
+      "title": "主体占比不低于 55%（缩略图可辨识）",
+      "why": "封面在手机上近乎邮票大小，主体占比不足时买家连“卖的是什么”都看不清，自然不会有进入直播间的意愿。",
+      "fact": "productCoverage",
+      "op": ">=",
+      "value": 55,
+      "unit": "%",
+      "severity": "high",
+      "suggest": "让人或商品占满画面 2/3，删掉多余的背景与道具；先缩到手机宽度自检，看不清主体就重构图。",
+      "source": "model"
+    },
+    {
+      "id": "R07",
+      "group": "质量标准",
+      "title": "分辨率下限 800px（高于主图标准）",
+      "why": "封面在推荐流中会被拉伸到不同密度屏幕，且要经得起二次裁切，短边低于 800px 时边缘发虚、文字起毛边。",
+      "fact": "minSide",
+      "op": ">=",
+      "value": 800,
+      "unit": "px",
+      "severity": "high",
+      "suggest": "统一输出短边 1080px 的封面（最低 800px）；不要用聊天软件转存的压缩图，直接上传原图。",
+      "source": "pipeline"
+    },
+    {
+      "id": "R08",
+      "group": "质量标准",
+      "title": "画面需有冲击力（对比与色彩表现）",
+      "why": "推荐流是并列浏览，平淡发灰的封面会被快速划走；足够的明暗层次与色彩浓度才撑得起“点进去看看”的冲动。",
+      "fact": "saturationRatio",
+      "op": ">=",
+      "value": 18,
+      "unit": "%",
+      "severity": "medium",
+      "suggest": "提高主体与背景的明度差，给服装配一个对比色背景；后期适当提升饱和度与对比度，但避免溢出失真。",
+      "source": "pipeline"
+    },
+    {
+      "id": "R09",
+      "group": "质量标准",
+      "title": "不得出现无关物体或杂乱元素",
+      "why": "封面信息量本就有限，任何杂物都会与主体争夺注意力，在缩略图尺寸下直接变成一团脏色块。",
+      "fact": "hasExtraObjects",
+      "op": "==",
+      "value": false,
+      "severity": "medium",
+      "suggest": "只保留 1 个主体和至多 1 件强相关道具；杂物、包装箱、线缆全部清出画面。",
+      "source": "model"
+    },
+    {
+      "id": "R10",
+      "group": "质量标准",
+      "title": "主体不得被裁切",
+      "why": "头部、手部或商品边缘被切掉会让画面显得局促不完整，在方图裁切后更容易只剩半张脸。",
+      "fact": "subjectClipped",
+      "op": "==",
+      "value": false,
+      "severity": "medium",
+      "suggest": "拍摄时留出头顶与两侧空间，按 1:1 取景拍摄；宁可退后半步，也不要让主体顶到画框。",
+      "source": "model"
+    },
+    {
+      "id": "R11",
+      "group": "质量标准",
+      "title": "构图平衡，留白不过多",
+      "why": "大面积留白在缩略图里会显得空、重点不明，也会让封面在信息流中缺乏视觉重量而被忽略。",
+      "fact": "compositionBalance",
+      "op": ">=",
+      "value": 65,
+      "unit": "%",
+      "severity": "low",
+      "suggest": "用三分法把主体放在视觉重心，留白集中在文字区一侧；背景空旷时收缩取景范围或加色块补足画面重量。",
+      "source": "model"
+    }
+  ]
+}

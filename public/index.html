@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>视觉质检 Agent · Vision QC Agent</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230f172a'/%3E%3Ccircle cx='14' cy='14' r='7' fill='none' stroke='%2338bdf8' stroke-width='2.5'/%3E%3Cpath d='M19.5 19.5L26 26' stroke='%2338bdf8' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">◎</span>
+        <div>
+          <strong>视觉质检 Agent</strong>
+          <span class="sub">多模态图片质检 / 洞察 · 清单驱动 · 本地判定</span>
+        </div>
+      </div>
+      <div class="route" id="route">
+        <span class="dot" id="route-dot"></span>
+        <span id="route-text">正在读取视觉线路…</span>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="panel">
+        <section class="block">
+          <h2>1 · 上传商品图片</h2>
+          <label class="dropzone" id="dropzone">
+            <input type="file" id="files" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden />
+            <span class="dz-icon">⤒</span>
+            <span class="dz-title">拖拽图片到此处，或点击选择</span>
+            <span class="dz-hint">支持 PNG / JPEG / WebP / GIF，单批最多 <b id="max-images">12</b> 张</span>
+          </label>
+          <ul class="thumbs" id="thumbs"></ul>
+        </section>
+
+        <section class="block">
+          <h2>2 · 选择质检清单</h2>
+          <select id="checklist" class="control"></select>
+          <p class="muted" id="checklist-desc"></p>
+          <details class="rules-peek">
+            <summary>查看清单条目（<span id="rule-count">0</span> 项）</summary>
+            <ul id="rule-list"></ul>
+          </details>
+        </section>
+
+        <section class="block">
+          <h2>3 · 运行</h2>
+          <label class="switch">
+            <input type="checkbox" id="mock" />
+            <span>演示模式（不调用模型，用本地像素兜底）</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="consistency" checked />
+            <span>多图一致性检查（SKU 组色差 / 是否同一件）</span>
+          </label>
+          <button class="primary" id="run" disabled>开始质检</button>
+          <p class="muted" id="status">等待上传图片…</p>
+        </section>
+
+        <section class="block">
+          <h2>4 · 质检员复核</h2>
+          <p class="muted" id="feedback-summary">尚无人工推翻记录。</p>
+          <button class="ghost" id="show-adjustments">查看阈值调整建议</button>
+          <div id="adjustments" class="adjustments"></div>
+        </section>
+      </aside>
+
+      <section class="results">
+        <div class="summary" id="summary" hidden>
+          <div class="metric">
+            <span class="metric-label">平均分</span>
+            <span class="metric-value" id="m-score">–</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">合格</span>
+            <span class="metric-value ok" id="m-pass">0</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">需优化</span>
+            <span class="metric-value warn" id="m-warn">0</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">不合格</span>
+            <span class="metric-value bad" id="m-fail">0</span>
+          </div>
+          <div class="metric wide">
+            <span class="metric-label">高频问题</span>
+            <span class="metric-value small" id="m-top">–</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">本批成本</span>
+            <span class="metric-value small" id="m-cost">–</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">每张 / tokens</span>
+            <span class="metric-value small" id="m-unit">–</span>
+          </div>
+        </div>
+        <div id="consistency-slot"></div>
+
+        <div class="stream" id="stream">
+          <div class="empty" id="empty">
+            <h3>还没有质检结果</h3>
+            <p>上传图片 → 选择清单 → 点「开始质检」。<br />你会在右侧实时看到它<strong>测量 → 看图 → 逐条判定</strong>的全过程。</p>
+            <p class="muted">需要样例图？运行 <code>npm run samples</code> 生成 6 张典型问题图，再拖进来。</p>
+          </div>
+        </div>
+      </section>
+
+      <aside class="trace">
+        <h2>执行轨迹</h2>
+        <ol id="trace"></ol>
+      </aside>
+    </main>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

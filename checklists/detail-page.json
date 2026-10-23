@@ -1,0 +1,148 @@
+{
+  "$schema": "vision-qc-agent/checklist@1",
+  "id": "detail-page",
+  "name": "详情页长图走查清单",
+  "version": "1.0.0",
+  "description": "面向商品详情页长图的 11 项走查清单。合规项拦站外引流与信息越界，信息项保证款式/场景/细节/参数/尺码五种用途可辨，质量项守住长图放大后的画质底线。",
+  "meta": {
+    "locale": "zh-CN",
+    "platform": "通用电商平台详情页",
+    "category": "服饰 / 鞋包 / 家居通用",
+    "mediaType": "detail-page-long-image"
+  },
+  "rules": [
+    {
+      "id": "R01",
+      "group": "合规底线",
+      "title": "不得出现任何联系方式",
+      "why": "详情页留电话、微信、QQ 属站外引流，是平台处罚最重的一类违规，也会让买家对店铺资质产生怀疑。",
+      "fact": "hasContactInfo",
+      "op": "==",
+      "value": false,
+      "severity": "high",
+      "suggest": "删除画面中的手机号、微信号、QQ 号与客服热线；售后联络方式统一放到店铺客服入口，不要印在图片上。",
+      "source": "model"
+    },
+    {
+      "id": "R02",
+      "group": "合规底线",
+      "title": "文字量不得过多，避免长图变“海报”",
+      "why": "详情页长图的价值在于看图说话；文字堆到覆盖大半版面，买家会直接跳过，转化与停留时长一起下降。",
+      "fact": "textInImage",
+      "op": "in",
+      "value": ["none", "minimal", "moderate"],
+      "severity": "medium",
+      "suggest": "单屏文字信息控制在 3 行以内，把长段落拆成短句 + 图标；参数用表格而不是整段文字。",
+      "source": "model"
+    },
+    {
+      "id": "R03",
+      "group": "信息完整",
+      "title": "图片用途可辨识（款式/场景/细节/参数/尺码）",
+      "why": "长图是一组分工明确的图：没有用途标识的图等于废图，买家找不到自己关心的那一屏就会流失。",
+      "fact": "detailsVisible",
+      "op": "==",
+      "value": true,
+      "severity": "high",
+      "suggest": "按“款式全景 → 场景上身 → 细节特写 → 参数表 → 尺码表”排序，每屏只承担一个用途，并在图内加简短小标题。",
+      "source": "model"
+    },
+    {
+      "id": "R04",
+      "group": "信息完整",
+      "title": "商品品类可识别",
+      "why": "长图会被单独截取成推荐流素材，品类不可识别时系统无法归类，也就拿不到精准流量。",
+      "fact": "productIdentifiable",
+      "op": "==",
+      "value": true,
+      "severity": "medium",
+      "suggest": "每屏至少保留一处完整商品轮廓，不要整屏只放面料纹理或局部特写。",
+      "source": "model"
+    },
+    {
+      "id": "R05",
+      "group": "视觉质量",
+      "title": "细节图必须有真实细节",
+      "why": "详情页细节图承担“所见即所得”的举证责任；只放远景或模糊特写，会被认定为用图不实并引发退货。",
+      "fact": "detailFlaws",
+      "op": "==",
+      "value": false,
+      "severity": "high",
+      "suggest": "重拍细节特写（建议微距，占屏 1/3 以上），拍前剪净线头、熨平褶皱、擦掉污渍，保留走线与纹理。",
+      "source": "model"
+    },
+    {
+      "id": "R06",
+      "group": "视觉质量",
+      "title": "构图完整，主体不得被裁切",
+      "why": "长图需要多次裁切适配不同端：主体顶到边界的图在手机端会被切掉头尾，观感廉价。",
+      "fact": "subjectClipped",
+      "op": "==",
+      "value": false,
+      "severity": "medium",
+      "suggest": "主体四周留出 8%-10% 安全边距；需要特写时用完整构图重新裁切，不要把关键部位压在画面边缘。",
+      "source": "model"
+    },
+    {
+      "id": "R07",
+      "group": "视觉质量",
+      "title": "画质达标：最短边不低于 750px",
+      "why": "详情页图片在手机端会被放大到全屏宽，短边低于 750px 时纹理与走线直接糊成一片，还会被平台判为低质图。",
+      "fact": "minSide",
+      "op": ">=",
+      "value": 750,
+      "unit": "px",
+      "severity": "medium",
+      "suggest": "导出统一按 750px 以上短边（推荐 1200px）输出；长图按屏切片导出，不要整张压缩后再拼接。",
+      "source": "pipeline"
+    },
+    {
+      "id": "R08",
+      "group": "视觉质量",
+      "title": "不得有明显模糊",
+      "why": "详情页是买家放大细看的场景，任何模糊都会被感知为“货不对版”的预兆。",
+      "fact": "blurRisk",
+      "op": "in",
+      "value": ["none"],
+      "severity": "medium",
+      "suggest": "上三脚架 + 快门 1/125s 以上重拍；已拍好的图用高反差保留做轻微锐化，不要用重度锐化掩盖失焦。",
+      "source": "model"
+    },
+    {
+      "id": "R09",
+      "group": "视觉质量",
+      "title": "噪点与压缩痕迹需为低",
+      "why": "长图切片多、压缩次数多，噪点与块效应会被逐屏放大，让整页显得粗糙且不专业。",
+      "fact": "noiseLevel",
+      "op": "in",
+      "value": ["low"],
+      "severity": "low",
+      "suggest": "降低拍摄 ISO 至 400 以下补光拍摄；导出用高质量 JPEG（质量 90 以上），切片后不要二次反复保存。",
+      "source": "model"
+    },
+    {
+      "id": "R10",
+      "group": "视觉质量",
+      "title": "投影自然，主体不发飘",
+      "why": "详情页换背景频繁，投影脏乱或完全没有投影会让商品像贴纸，削弱真实感与价格说服力。",
+      "fact": "shadowQuality",
+      "op": "in",
+      "value": ["clean"],
+      "severity": "low",
+      "suggest": "保留一层柔和落地投影（不透明度 15%-25%）；换背景时用图层蒙版保留原投影，不要直接抠掉。",
+      "source": "model"
+    },
+    {
+      "id": "R11",
+      "group": "信息完整",
+      "title": "色差风险需为低",
+      "why": "详情页是买家确认颜色的最后一屏，色差直接转化为退换货成本，也是详情页投诉的高发点。",
+      "fact": "colorAccuracyRisk",
+      "op": "in",
+      "value": ["low", "medium"],
+      "severity": "medium",
+      "suggest": "拍摄时放入灰卡并统一白平衡；深色与高饱和面料各补拍一屏并标注“实拍无色差”，避免过度调色。",
+      "source": "model"
+    }
+  ]
+}

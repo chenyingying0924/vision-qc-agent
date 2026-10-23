@@ -1,0 +1,16 @@
+# runtime / scratch
+data/
+node_modules/
+.env
+
+# generated reports and sample builds (regenerate with `npm run samples`)
+reports/
+samples/*.html
+test/fixtures/
+
+# OS / editor noise
+.DS_Store
+*.log
+
+# another tool's local memory directory (not part of this project)
+.workbuddy/
