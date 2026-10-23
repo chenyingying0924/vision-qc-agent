@@ -60,7 +60,8 @@
 ```
 vision-qc-agent/
 ├── package.json            scripts 6 个入口；dependencies 为空；engines.node >=20.6
-├── README.md               21.5 KB，14 节（功能/设计决策/运行/流程/清单/一致性/HITL/成本/MCP/结构/API/实测结果/边界/规划）
+├── README.md               12 节（功能/设计决策/运行/流程/清单/一致性/HITL/成本/MCP/结构/API/实测结果）
+│                           边界与后续方向在 docs/known-limitations.md（审计时为 README §13/§14）
 ├── LICENSE                 MIT
 ├── .gitignore              data/ reports/ node_modules/ .env samples/*.html test/fixtures/ .workbuddy/
 ├── .github/workflows/ci.yml  Node 20+22 矩阵，node --check 全量语法 + npm test
@@ -430,10 +431,10 @@ flowchart LR
 
 | ID | 类型 | 证据 | 问题 | 建议 |
 | --- | --- | --- | --- | --- |
-| BUG-012 | 文档 | `README.md` §13 第 5 条 | 写「实测同一张 **500px** 的图，两次得到 88/87 …因为一条 **high** 规则的临界通过/不通过」。核对 `reports/2026-09-17T09-02-11` 与 `09-13-51`：该图实为 **1000×1000**；两次结论差别的真实原因是 88 分批次 2 条 medium 失败→`warn`，87 分批次 **R05（medium）** 也失败→3 条 medium→`fail`。不存在 high 规则翻转。 | 按实测报告改写，并保留"三条 medium 即不合格"这个真实机制 |
+| BUG-012 | 文档 | 原 `README.md` §13 第 5 条（该节已迁至 `docs/known-limitations.md`） | 写「实测同一张 **500px** 的图，两次得到 88/87 …因为一条 **high** 规则的临界通过/不通过」。核对 `reports/2026-09-17T09-02-11` 与 `09-13-51`：该图实为 **1000×1000**；两次结论差别的真实原因是 88 分批次 2 条 medium 失败→`warn`，87 分批次 **R05（medium）** 也失败→3 条 medium→`fail`。不存在 high 规则翻转。 | 按实测报告改写，并保留"三条 medium 即不合格"这个真实机制 |
 | BUG-013 | 文档 | `docs/MCP-IMPLEMENTATION-BRIEF.md:13` | 引用 `mcp-brief-verify/{server,drive,edge,plugin-e2e,timeout}.mjs` 作为验证产物，仓库中不存在 | 注明"研究期临时验证脚本，未随仓库发布"，或移除该句 |
 | BUG-014 | 测试覆盖 | `src/server.mjs` 全部 253 行 | HTTP 层零自动化测试：9 个路由、SSE 帧、上传上限、静态目录穿越、状态码语义都没有用例；`test/mcp-probe.mjs` 只 `console.log` 不 `assert`，CI 也不跑它 | 新增 `test/http.test.mjs`（离线、mock、进程内启动 server）；给 MCP 探针加断言并以非零码失败 |
-| BUG-015 | 工程规范 | 仓库根 | 缺 `.env.example`（5 个 `QC_*` 变量只散落在 README 与 config 注释里）；未说明如何**重置演示数据**（`data/feedback.jsonl` 会让样例分数漂移） | 补 `.env.example`；README §13 增补"重置演示"一行 |
+| BUG-015 | 工程规范 | 仓库根 | 缺 `.env.example`（5 个 `QC_*` 变量只散落在 README 与 config 注释里）；未说明如何**重置演示数据**（`data/feedback.jsonl` 会让样例分数漂移） | 补 `.env.example`；`docs/known-limitations.md` 增补"重置演示"一行 |
 
 ### 5.5 优化建议（无缺陷，可选）
 

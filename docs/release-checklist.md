@@ -91,8 +91,11 @@ CI（`.github/workflows/ci.yml`）：Node 20 + 22 矩阵 → 全量语法检查 
 | 输入要求与输出示例 | ✅ §4 §12 + `/api/inspect` 契约表 |
 | 关键设计决策与技术难点 | ✅ §2 + `architecture.md` §4 |
 | 测试方式与实际结果 | ✅ §3 §12；数量已从 42 校正为 67 |
-| 当前状态与后续规划 | ✅ §13 §14 |
-| 数据/模型/依赖声明 | ✅ §8（费率来源与核对日期）、§13（边界） |
+| 当前状态与后续规划 | ✅ `docs/known-limitations.md` |
+| 数据/模型/依赖声明 | ✅ §8（费率来源与核对日期）、`docs/known-limitations.md`（边界） |
+
+> 其中「当前状态与后续规划」「已知边界」两项**不在 README 正文**，而在 `docs/known-limitations.md`：
+> README 是对外的落地页，这两项是写给技术评审的。信息没有删减，只是分层（见 `fix-log.md` 末尾的发布后调整）。
 
 ### E7. 已知问题与未完成事项
 
@@ -184,7 +187,7 @@ $ git fetch && git status -sb
 2. **Node 20 未本地验证**，仅由 CI 矩阵声明。
 3. **JPEG/WebP 的实测指标缺失**是设计选择，不是缺陷，但会让部分规则永远停在「未判定」。
 4. **无鉴权 + 只监听本地**：适合作品集演示，不适合直接部署。
-5. **推翻日志会改变演示结果**：`data/feedback.jsonl` 有记录时样例分数会漂移（已在 README §13 说明）。
+5. **推翻日志会改变演示结果**：`data/feedback.jsonl` 有记录时样例分数会漂移（已在 `docs/known-limitations.md` 说明）。
 
 ### F6. GitHub 发布建议
 
@@ -210,8 +213,8 @@ $ git fetch && git status -sb
 | 安装/配置/运行/测试说明与实现一致 | ✅ | README 的每条命令都实际执行过；`.env.example` 与 `config.mjs` 一一对应 |
 | 无未披露的重大安全问题 | ✅ | 目录穿越、密钥、上传校验均已实测；无鉴权一事已明写 |
 | 无伪造测试结果 / 虚构性能 / 夸大成果 | ✅ | 修正了 README 里两处与实测不符的描述；未新增任何未测数字；`reports/` 不入库也已说明 |
-| README/架构/测试文档可支撑第三方理解与复现 | ✅ | README 14 节 + `architecture.md` 3 张图 + `audit-report.md` + `fix-log.md` |
-| 未解决问题、环境限制、功能边界均有记录 | ✅ | README §13、本文件 E7/F5 |
+| README/架构/测试文档可支撑第三方理解与复现 | ✅ | README 12 节 + `architecture.md`（3 张图）+ `audit-report.md` + `fix-log.md` + `known-limitations.md` |
+| 未解决问题、环境限制、功能边界均有记录 | ✅ | `docs/known-limitations.md`、本文件 E7/F5 |
 
 **"达标"的边界**：本结论只覆盖已检查的代码、这台机器上的执行结果、以及在 CI 声明范围内的 Node 版本；
 它不等于"没有 bug"，也不等于"真实模型在所有商品图上都判得准"——后者需要标注数据集与准确率评测，
