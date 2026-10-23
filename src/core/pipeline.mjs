@@ -14,6 +14,7 @@ import { evaluate, loadChecklists, renderMarkdown } from "./rules.mjs";
 import { evaluateConsistency, renderConsistencyMarkdown } from "./consistency.mjs";
 import { summarizeCost } from "./pricing.mjs";
 import { annotateReport } from "./feedback.mjs";
+import { QcError } from "./errors.mjs";
 import { measure } from "../image/inspect.mjs";
 import { analyzeConsistency, analyzeVision, mockVisionFacts } from "../vision/provider.mjs";
 
@@ -43,6 +44,8 @@ function runKey(buffer, checklist, modelTag) {
  * @param {(event: object) => void} [params.onEvent] - progress sink.
  * @param {boolean} [params.forceMock] - ignore the API even when a key exists.
  * @param {Map<string, object>} [params.cache] - run cache keyed by {@link runKey}.
+ * @param {number} [params.dropped] - files the caller discarded before calling
+ *   (over the per-batch cap), reported instead of silently vanishing.
  * @returns {Promise<{batch: object, reports: object[]}>} batch summary plus per-image reports.
  */
 export async function inspectBatch({
@@ -55,15 +58,36 @@ export async function inspectBatch({
   consistency = true,
   consistencyCache,
   feedback,
+  dropped = 0,
 }) {
   const checklists = loadChecklists(join(config.appRoot, "checklists"));
-  const checklist = checklists.find((entry) => entry.id === checklistId) ?? checklists[0];
-  if (!checklist) throw new Error("no checklist available");
+  const checklist = checklistId === undefined
+    ? checklists[0]
+    : checklists.find((entry) => entry.id === checklistId);
+  if (!checklist) {
+    // Falling back to the first checklist here meant a typo silently ran a
+    // different standard while the report looked completely normal.
+    if (checklistId === undefined) throw new QcError("没有可用的质检清单", "UNKNOWN_CHECKLIST");
+    throw new QcError(
+      `清单 "${checklistId}" 不存在，可用：${checklists.map((entry) => entry.id).join(" / ")}`,
+      "UNKNOWN_CHECKLIST",
+      { available: checklists.map((entry) => entry.id) },
+    );
+  }
   const useMock = forceMock || config.mock || !config.apiKeyConfigured;
   const modelTag = useMock ? "mock:v1" : `${config.provider}:${config.model}`;
   const startedAt = Date.now();
+  const droppedCount = Math.max(0, Number(dropped) || 0);
 
-  onEvent({ type: "batch-start", total: images.length, checklist: { id: checklist.id, name: checklist.name }, model: modelTag, mock: useMock });
+  onEvent({ type: "batch-start", total: images.length, dropped: droppedCount, checklist: { id: checklist.id, name: checklist.name }, model: modelTag, mock: useMock });
+  if (droppedCount > 0) {
+    onEvent({
+      type: "batch-warning",
+      code: "IMAGES_DROPPED",
+      message: `单批上限 ${images.length} 张，已忽略 ${droppedCount} 张未处理的图片`,
+      dropped: droppedCount,
+    });
+  }
 
   const queue = images.slice();
   const reports = new Array(images.length);
@@ -88,7 +112,24 @@ export async function inspectBatch({
     }
   }
 
-  await Promise.all(Array.from({ length: Math.max(1, Math.min(config.concurrency, images.length)) }, (_, i) => worker(i + 1)));
+  // Guard the worker count: a non-integer `concurrency` (invalid env value that
+  // bypassed config validation) used to make `Array.from({length:NaN})` empty,
+  // so zero workers ran and the batch reported "0 ok / 1 failed" with a hole in
+  // `reports`. One worker always runs now.
+  const requested = Number(config.concurrency);
+  const workers = Math.max(1, Math.min(Number.isInteger(requested) && requested > 0 ? requested : 1, images.length || 1));
+  await Promise.all(Array.from({ length: workers }, (_, i) => worker(i + 1)));
+
+  // No holes, ever: every index must be either a report or an explicit error,
+  // otherwise the CLI/MCP renderers crash on `report.image.name`.
+  for (let index = 0; index < reports.length; index += 1) {
+    if (reports[index]) continue;
+    reports[index] = {
+      ok: false,
+      image: { name: images[index]?.name ?? `#${index}` },
+      error: { message: "该图片未被处理（调度异常）", code: "NOT_PROCESSED" },
+    };
+  }
 
   // Pair each report with the image it came from. Matching by file name would
   // break on duplicate names (very common across folders), so the queue index
@@ -111,7 +152,6 @@ export async function inspectBatch({
       .slice(0, 16);
     if (consistencyCache?.has(groupKey)) {
       groupCheck = { ...consistencyCache.get(groupKey), cached: true, cost: null };
-      onEvent({ type: "consistency-report", report: groupCheck });
     } else {
       try {
         groupCheck = await checkConsistency({ config, pairs, useMock, onEvent });
@@ -134,6 +174,7 @@ export async function inspectBatch({
     model: modelTag,
     mock: useMock,
     total: images.length,
+    dropped: droppedCount,
     ok: succeeded.length,
     failed: reports.length - succeeded.length,
     cached: succeeded.length - billed.length,
@@ -241,6 +282,16 @@ async function inspectOne({ config, checklist, image, useMock, modelTag, cache, 
   }
 
   const measurement = measure(image);
+  // Reject non-images *before* the model call. Previously an arbitrary file was
+  // measured as `format:"unknown", width:0`, then sent as `data:image/unknown`
+  // (a guaranteed 4xx that still cost a request) or, in mock mode, dressed up in
+  // fabricated facts and reported as "不合格" — which reads like a product defect.
+  if (!measurement.supported) {
+    throw new QcError(
+      `不支持的图片格式（识别为 ${measurement.format}）：${image.name}。支持 PNG / JPEG / WebP / GIF`,
+      "UNSUPPORTED_FORMAT",
+    );
+  }
   onEvent({
     type: "image-measured",
     index,

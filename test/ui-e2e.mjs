@@ -4,19 +4,29 @@
  * Verifies the parts curl cannot: file upload, the SSE-driven rendering, the
  * overturn form posting to /api/feedback, and the threshold-advice panel.
  *
- * Usage: node test/ui-e2e.mjs            (expects `npm start` on 127.0.0.1:4599)
- *        QC_MOCK=1 node test/ui-e2e.mjs  (offline, no model calls)
+ * The test hosts its own server against a throwaway data directory, so it is
+ * repeatable: it never appends fake overturns to the demo's `data/feedback.jsonl`
+ * (which used to change the sample scores and made the second run fail).
+ *
+ * Usage: node test/ui-e2e.mjs             (offline: mock mode, temp data dir)
+ *        QC_MOCK=0 node test/ui-e2e.mjs   (real model calls — costs money)
+ *        QC_URL=http://127.0.0.1:4599/ node test/ui-e2e.mjs   (use a running server)
  */
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const APP_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const URL_UNDER_TEST = process.env.QC_URL ?? "http://127.0.0.1:4599/";
 const CHROME = process.env.QC_CHROME ?? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const MOCK = process.env.QC_MOCK === "1";
+/** Mock is the default: an offline test must not need a key or spend money. */
+const MOCK = process.env.QC_MOCK !== "0";
 const PROFILE = join(APP_ROOT, "data", "ui-e2e");
+const DATA_DIR = mkdtempSync(join(tmpdir(), "qc-ui-data-"));
+
+let serverProcess = null;
+let baseUrl = process.env.QC_URL ?? "";
 
 const wait = (ms) => new Promise((done) => setTimeout(done, ms));
 
@@ -69,6 +79,50 @@ async function findPageTarget(port) {
   throw new Error("Chrome DevTools endpoint never became ready");
 }
 
+/**
+ * Start the server under test on a throwaway port + data directory.
+ * Skipped when `QC_URL` points at a server the caller already started.
+ */
+async function ensureServer() {
+  if (baseUrl) return;
+  const port = 4700 + (process.pid % 200);
+  baseUrl = `http://127.0.0.1:${port}/`;
+  serverProcess = spawn(process.execPath, [join(APP_ROOT, "src", "server.mjs")], {
+    env: {
+      ...process.env,
+      QC_PORT: String(port),
+      QC_MOCK: MOCK ? "1" : "0",
+      QC_NO_SAVE: "1",
+      QC_DATA_DIR: DATA_DIR,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let stderr = "";
+  serverProcess.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    if (serverProcess.exitCode !== null) throw new Error(`服务启动失败：${stderr.slice(-400)}`);
+    try {
+      const health = await fetch(`${baseUrl}api/health`);
+      if (health.ok) return;
+    } catch {
+      /* not listening yet */
+    }
+    await wait(100);
+  }
+  throw new Error(`服务未在 10s 内就绪：${stderr.slice(-400)}`);
+}
+
+function stopServer() {
+  if (serverProcess && serverProcess.exitCode === null) serverProcess.kill("SIGKILL");
+  serverProcess = null;
+  try {
+    rmSync(DATA_DIR, { recursive: true, force: true });
+  } catch {
+    /* temp dir: best effort */
+  }
+}
+
 /** Evaluate an expression in the page and return its JSON value. */
 async function evaluate(cdp, sessionId, expression) {
   const result = await cdp.send(
@@ -82,6 +136,7 @@ async function evaluate(cdp, sessionId, expression) {
 
 async function main() {
   if (!existsSync(CHROME)) throw new Error(`找不到 Chrome：${CHROME}`);
+  await ensureServer();
   mkdirSync(PROFILE, { recursive: true });
   const port = 9333 + (process.pid % 200);
   const chrome = spawn(
@@ -99,7 +154,7 @@ async function main() {
       `--user-data-dir=${join(PROFILE, "chrome")}`,
       `--crash-dumps-dir=${join(PROFILE, "crash")}`,
       "--window-size=1600,1400",
-      URL_UNDER_TEST,
+      baseUrl,
     ],
     { stdio: "ignore", env: { ...process.env, TMPDIR: PROFILE } },
   );
@@ -201,7 +256,13 @@ async function main() {
   writeFileSync(shotPath, Buffer.from(shot.data, "base64"));
   check("已截图", statSync(shotPath).size > 10_000, shotPath);
 
+  // 7. isolation proof: the overturn must land in the temp data dir, not in the
+  //    project's data/feedback.jsonl (which would corrupt the demo dataset).
+  const isolated = existsSync(join(DATA_DIR, "feedback.jsonl"));
+  check("推翻记录写入临时数据目录", isolated || Boolean(process.env.QC_URL), isolated ? DATA_DIR : "QC_URL 模式下跳过");
+
   chrome.kill("SIGKILL");
+  stopServer();
   if (pageErrors.length > 0) {
     console.log("\n页面异常：");
     for (const error of pageErrors.slice(0, 5)) console.log(`  ! ${String(error).split("\n")[0]}`);
@@ -213,5 +274,6 @@ async function main() {
 
 main().catch((error) => {
   console.error(`UI 端到端测试失败：${error.message}`);
+  stopServer();
   process.exit(1);
 });

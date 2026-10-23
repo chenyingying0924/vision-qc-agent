@@ -265,6 +265,7 @@ export function annotateReport(report, store) {
   });
   const failed = results.filter((result) => result.status === "fail");
   const unknown = results.filter((result) => result.status === "unknown");
+  const overturned = results.filter((result) => result.status === "overturned");
   const highFails = failed.filter((result) => result.severity === "high").length;
   const mediumFails = failed.filter((result) => result.severity === "medium").length;
   const lowFails = failed.length - highFails - mediumFails;
@@ -285,7 +286,16 @@ export function annotateReport(report, store) {
     verdict,
     verdictLabel: { pass: "合格", warn: "需优化", fail: "不合格", unknown: "无法判定" }[verdict],
     results,
-    counts: { pass: results.length - failed.length - unknown.length, fail: failed.length, unknown: unknown.length, total: results.length, overturned: results.filter((result) => result.overridden).length },
+    // Count each status explicitly: `total - fail - unknown` used to fold the
+    // overturned items into `pass`, so pass+fail+unknown+overturned exceeded
+    // `total` and the Markdown headers did not add up.
+    counts: {
+      pass: results.filter((result) => result.status === "pass").length,
+      fail: failed.length,
+      unknown: unknown.length,
+      overturned: overturned.length,
+      total: results.length,
+    },
     recommendations: report.recommendations.filter((item) => !byRule.has(item.id)),
     override: { count: overturns.length, latest: overturns[overturns.length - 1].at },
   };

@@ -54,8 +54,27 @@ export function validateChecklist(doc, origin = "inline") {
     if (rule.op === "between" && (!Array.isArray(rule.value) || rule.value.length !== 2)) {
       throw new Error(`${where}.value must be a [min, max] pair for the "between" operator`);
     }
+    if (rule.op === "between") {
+      const [low, high] = rule.value;
+      if (!Number.isFinite(low) || !Number.isFinite(high)) {
+        throw new Error(`${where}.value must contain two finite numbers for the "between" operator`);
+      }
+      if (low > high) throw new Error(`${where}.value must be ordered [min, max]; got [${low}, ${high}]`);
+    }
     if (rule.op === "in" && !Array.isArray(rule.value)) {
       throw new Error(`${where}.value must be an array for the "in" operator`);
+    }
+    if (rule.op === "in" && rule.value.length === 0) {
+      throw new Error(`${where}.value must not be empty for the "in" operator`);
+    }
+    // Ordered comparisons against a non-number used to silently score against 0
+    // (`target = typeof value === "number" ? value : 0`), i.e. `{op:">=",value:"800"}`
+    // became `>= 0` and always passed while the report still printed ">= 800".
+    if (ORDERED_OPERATORS[rule.op] && !Number.isFinite(rule.value)) {
+      throw new Error(`${where}.value must be a finite number for the "${rule.op}" operator; got ${JSON.stringify(rule.value)}`);
+    }
+    if ((rule.op === "==" || rule.op === "!=") && rule.value === undefined) {
+      throw new Error(`${where}.value is required for the "${rule.op}" operator`);
     }
     const worst = rule.severity ?? "medium";
     return {
@@ -303,7 +322,12 @@ export function evaluate({ checklist, measurement, modelFacts = {}, modelMeta = 
     score,
     verdict,
     verdictLabel: { pass: "合格", warn: "需优化", fail: "不合格", unknown: "无法判定" }[verdict],
-    counts: { pass: results.length - failures.length - unknown, fail: failures.length, unknown, total: results.length },
+    counts: {
+      pass: results.filter((result) => result.status === "pass").length,
+      fail: failures.length,
+      unknown,
+      total: results.length,
+    },
     severityBreakdown: { high: highFails, medium: mediumFails, low: lowFails },
     results,
     recommendations,
@@ -320,6 +344,8 @@ export function evaluate({ checklist, measurement, modelFacts = {}, modelMeta = 
       usage: modelMeta.usage ?? null,
       summary: String(modelMeta.reason ?? modelFacts.summary ?? ""),
       confidence: typeof modelMeta.confidence === "number" ? modelMeta.confidence : null,
+      /** Values the model returned outside the fact catalogue, and what was coerced. */
+      normalized: modelMeta.normalized ?? null,
     },
   };
 }
@@ -349,6 +375,11 @@ export function renderMarkdown(report) {
   if (report.model?.summary) {
     lines.push("");
     lines.push(`> 模型概述：${report.model.summary}`);
+  }
+  const droppedFields = report.model?.normalized?.dropped ?? [];
+  if (droppedFields.length > 0) {
+    lines.push("");
+    lines.push(`> 模型返回了 ${droppedFields.length} 个不在事实目录内的字段，已丢弃并按「未判定」处理：${droppedFields.join("、")}`);
   }
   lines.push("");
   lines.push("## 逐项判定");

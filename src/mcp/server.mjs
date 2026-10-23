@@ -18,7 +18,7 @@
  * @module vision-qc-agent/mcp/server
  */
 import { readFile } from "node:fs/promises";
-import { basename, extname, resolve } from "node:path";
+import { basename, extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadConfig } from "../config.mjs";
 import { FeedbackStore, suggestAdjustments } from "../core/feedback.mjs";
@@ -132,10 +132,13 @@ function errorResult(message) {
 }
 
 /** Resolve and validate image paths from a tool argument. */
-async function loadImages(paths) {
+async function loadImages(paths, limit = 12) {
   if (!Array.isArray(paths) || paths.length === 0) throw new Error("paths 必须是非空字符串数组");
   const images = [];
-  for (const path of paths.slice(0, 12)) {
+  // The cap is enforced but never silent: the caller is told how many paths were
+  // skipped, otherwise a host agent believes all 20 images were inspected.
+  const accepted = paths.slice(0, limit);
+  for (const path of accepted) {
     const target = resolve(String(path));
     if (!IMAGE_EXT.has(extname(target).toLowerCase())) throw new Error(`不是支持的图片格式：${path}`);
     try {
@@ -144,7 +147,7 @@ async function loadImages(paths) {
       throw new Error(`无法读取图片 ${path}：${cause.message}`);
     }
   }
-  return images;
+  return { images, dropped: paths.length - accepted.length };
 }
 
 /** Summarise a batch as compact text the host model can reason over. */
@@ -152,10 +155,11 @@ function renderBatchText(batch, reports, consistency) {
   const lines = [];
   lines.push(`清单：${batch.checklist.name} v${batch.checklist.version}${batch.mock ? "（本地兜底）" : ""}`);
   lines.push(`结论：${batch.ok} 张完成 · 平均 ${batch.averageScore}/100 · 合格 ${batch.verdicts.pass ?? 0} / 需优化 ${batch.verdicts.warn ?? 0} / 不合格 ${batch.verdicts.fail ?? 0}`);
+  if (batch.dropped > 0) lines.push(`注意：单批上限 ${batch.total} 张，另有 ${batch.dropped} 个路径未被处理（请分批调用）`);
   lines.push("");
   for (const report of reports) {
     if (!report?.ok) {
-      lines.push(`✖ ${report.image.name}：失败 - ${report.error.message}`);
+      lines.push(`✖ ${report?.image?.name ?? "未知图片"}：失败 - ${report?.error?.message ?? "未知错误"}（${report?.error?.code ?? "ERROR"}）`);
       continue;
     }
     const mark = { pass: "合格", warn: "需优化", fail: "不合格", unknown: "无法判定" }[report.verdict];
@@ -201,7 +205,7 @@ async function callTool(name, args, ctx) {
   }
 
   if (name === "qc_inspect_images") {
-    const images = await loadImages(args.paths);
+    const { images, dropped } = await loadImages(args.paths, config.maxImages ?? 12);
     const { batch, reports, consistency } = await inspectBatch({
       config,
       images,
@@ -211,6 +215,7 @@ async function callTool(name, args, ctx) {
       cache: reportCache,
       consistencyCache,
       feedback,
+      dropped,
     });
     return {
       content: [{ type: "text", text: renderBatchText(batch, reports, consistency) }],
@@ -228,7 +233,7 @@ async function callTool(name, args, ctx) {
                 recommendations: report.recommendations,
                 markdown: report.markdown,
               }
-            : { name: report.image?.name, error: report.error },
+            : { name: report?.image?.name, error: report?.error },
         ),
       },
     };
@@ -244,7 +249,12 @@ async function callTool(name, args, ctx) {
 
   if (name === "qc_threshold_advice") {
     const checklists = loadChecklists(`${config.appRoot}/checklists`);
-    const checklist = checklists.find((entry) => entry.id === args.checklistId) ?? checklists[0];
+    const checklist = args.checklistId === undefined
+      ? checklists[0]
+      : checklists.find((entry) => entry.id === args.checklistId);
+    if (!checklist) {
+      return errorResult(`清单 "${args.checklistId}" 不存在，可用：${checklists.map((entry) => entry.id).join(" / ")}`);
+    }
     if (feedback.size === 0) return text("还没有人工推翻记录，暂时无法给出阈值建议。");
     const suggestions = suggestAdjustments({ checklist, store: feedback });
     if (suggestions.length === 0) {
@@ -287,7 +297,7 @@ async function callTool(name, args, ctx) {
   }
 
   if (name === "qc_write_reports") {
-    const images = await loadImages(args.paths);
+    const { images, dropped } = await loadImages(args.paths, config.maxImages ?? 12);
     const { batch, reports, consistency } = await inspectBatch({
       config,
       images,
@@ -296,6 +306,7 @@ async function callTool(name, args, ctx) {
       cache: reportCache,
       consistencyCache,
       feedback,
+      dropped,
     });
     const saved = saveReports(config, batch, reports, consistency);
     return text(`${renderBatchText(batch, reports, consistency)}\n\n报告已写入：${saved.dir}（${saved.files.length} 个文件）`);
@@ -312,7 +323,7 @@ export async function startMcpServer(options = {}) {
   const config = options.config ?? loadConfig();
   const reportCache = new Map();
   const consistencyCache = new Map();
-  const feedback = new FeedbackStore(`${config.appRoot}/data/feedback.jsonl`);
+  const feedback = new FeedbackStore(join(config.dataDir ?? join(config.appRoot, "data"), "feedback.jsonl"));
   const ctx = { config, reportCache, consistencyCache, feedback };
 
   const write = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);

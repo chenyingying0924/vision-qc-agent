@@ -89,10 +89,37 @@ export function resolveCredential(name) {
 const DEFAULT_PROVIDER = "deepseek";
 
 /**
+ * Read an integer environment variable and fail fast on garbage.
+ *
+ * `Number("abc")` is `NaN` and `Number("")` is `0`; both used to slip through
+ * silently. `QC_CONCURRENCY=abc` produced zero workers (no image processed at
+ * all) and `QC_MAX_UPLOAD_BYTES=abc` disabled the upload limit, because every
+ * comparison against `NaN` is false. A wrong number must stop the process at
+ * startup with the variable named, not produce a plausible-looking empty run.
+ *
+ * @param {string} name - environment variable name.
+ * @param {number} fallback - value used when the variable is unset/empty.
+ * @param {{min?: number, max?: number}} [range] - inclusive bounds.
+ * @returns {number} the parsed value.
+ * @throws {Error} when the value is not an integer inside the range.
+ */
+export function intFromEnv(name, fallback, { min = 1, max = Number.MAX_SAFE_INTEGER } = {}) {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`${name} 必须是 ${min}–${max} 之间的整数，当前值为 "${raw}"`);
+  }
+  return value;
+}
+
+/**
  * Build the effective configuration.
  * Environment overrides: `QC_PROVIDER`, `QC_MODEL`, `QC_BASE_URL`, `QC_API_KEY_ENV`,
- * `QC_MOCK`, `QC_PORT`, `QC_MAX_IMAGES`.
+ * `QC_MOCK`, `QC_PORT`, `QC_MAX_IMAGES`, `QC_MAX_UPLOAD_BYTES`, `QC_CONCURRENCY`,
+ * `QC_TIMEOUT_MS`, `QC_DATA_DIR`.
  * @returns {object} frozen configuration object.
+ * @throws {Error} when an environment override is malformed or the provider is unknown.
  */
 export function loadConfig() {
   const provider = process.env.QC_PROVIDER || DEFAULT_PROVIDER;
@@ -126,15 +153,21 @@ export function loadConfig() {
     },
   };
 
-  const active = providers[provider] ?? providers[DEFAULT_PROVIDER];
+  // An unknown provider used to fall back to DeepSeek's transport while keeping
+  // the bogus name, so calls were billed but `costOf()` could not price them and
+  // the panel reported "$0 · 未调用模型". Refuse the name instead.
+  if (!Object.hasOwn(providers, provider)) {
+    throw new Error(`QC_PROVIDER="${provider}" 不受支持，可选：${Object.keys(providers).join(" / ")}`);
+  }
+  const active = providers[provider];
   const keyEnv = process.env.QC_API_KEY_ENV || active.keyEnv;
   const credential = resolveCredential(keyEnv);
 
   return Object.freeze({
-    port: Number(process.env.QC_PORT || 4599),
-    maxImages: Number(process.env.QC_MAX_IMAGES || 12),
-    maxUploadBytes: Number(process.env.QC_MAX_UPLOAD_BYTES || 12 * 1024 * 1024),
-    concurrency: Number(process.env.QC_CONCURRENCY || 3),
+    port: intFromEnv("QC_PORT", 4599, { min: 0, max: 65_535 }),
+    maxImages: intFromEnv("QC_MAX_IMAGES", 12, { min: 1, max: 100 }),
+    maxUploadBytes: intFromEnv("QC_MAX_UPLOAD_BYTES", 12 * 1024 * 1024, { min: 1024, max: 512 * 1024 * 1024 }),
+    concurrency: intFromEnv("QC_CONCURRENCY", 3, { min: 1, max: 16 }),
     provider,
     providers,
     mock,
@@ -145,8 +178,14 @@ export function loadConfig() {
     apiKey: credential.value,
     credentialSource: credential.source,
     apiKeyConfigured: Boolean(credential.value),
-    requestTimeoutMs: Number(process.env.QC_TIMEOUT_MS || 120_000),
+    requestTimeoutMs: intFromEnv("QC_TIMEOUT_MS", 120_000, { min: 1000, max: 600_000 }),
     appRoot: APP_ROOT,
+    /**
+     * Where mutable runtime state lives (the overturn log, generated reports).
+     * Overridable so tests can run against a throwaway directory instead of
+     * appending fake overturns to the demo's real `data/feedback.jsonl`.
+     */
+    dataDir: process.env.QC_DATA_DIR ? resolve(process.env.QC_DATA_DIR) : join(APP_ROOT, "data"),
   });
 }
 

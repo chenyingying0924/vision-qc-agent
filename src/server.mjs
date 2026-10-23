@@ -12,13 +12,31 @@ import { createServer } from "node:http";
 import { extname, join, normalize, sep } from "node:path";
 import { loadConfig, publicConfig } from "./config.mjs";
 import { FACT_CATALOG } from "./core/facts.mjs";
+import { QcError, httpStatusFor } from "./core/errors.mjs";
 import { FeedbackStore, OVERTURN_REASONS, suggestAdjustments } from "./core/feedback.mjs";
 import { formatMoney, projection, RATE_CARD } from "./core/pricing.mjs";
 import { parseMultipart } from "./core/multipart.mjs";
 import { inspectBatch, saveReports } from "./core/pipeline.mjs";
 import { loadChecklists } from "./core/rules.mjs";
+import { detectFormat } from "./image/inspect.mjs";
 
-const config = loadConfig();
+/**
+ * Resolve configuration, or exit with one readable line.
+ *
+ * A bad `QC_*` value used to produce a raw stack trace before the server even
+ * listened; the message matters more than the trace here because the fix is
+ * always "correct that environment variable".
+ */
+function loadConfigOrExit() {
+  try {
+    return loadConfig();
+  } catch (error) {
+    process.stderr.write(`\n配置错误：${error.message}\n检查环境变量或 .env（模板见 .env.example）。\n`);
+    process.exit(1);
+  }
+}
+
+const config = loadConfigOrExit();
 const PUBLIC_DIR = join(config.appRoot, "public");
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -35,7 +53,7 @@ const reportCache = new Map();
 /** Consistency results are cached per image group so a replayed batch is free. */
 const consistencyCache = new Map();
 /** Reviewer overturns live in an append-only JSONL log under the project. */
-const feedback = new FeedbackStore(join(config.appRoot, "data", "feedback.jsonl"));
+const feedback = new FeedbackStore(join(config.dataDir ?? join(config.appRoot, "data"), "feedback.jsonl"));
 
 function json(res, status, body) {
   const payload = JSON.stringify(body);
@@ -52,7 +70,7 @@ async function readBody(req, limit) {
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > limit) throw new Error(`上传内容超过上限 ${Math.round(limit / 1024 / 1024)} MB`);
+    if (size > limit) throw new QcError(`上传内容超过上限 ${Math.round(limit / 1024 / 1024)} MB`, "PAYLOAD_TOO_LARGE");
     chunks.push(chunk);
   }
   return Buffer.concat(chunks);
@@ -131,11 +149,12 @@ const server = createServer(async (req, res) => {
     }
 
     if (req.method === "POST" && pathname === "/api/feedback") {
+      const raw = await readBody(req, 64 * 1024);
       let body;
       try {
-        body = JSON.parse((await readBody(req, 64 * 1024)).toString("utf8") || "{}");
+        body = JSON.parse(raw.toString("utf8") || "{}");
       } catch (error) {
-        return json(res, 400, { error: `请求体不是合法 JSON：${error.message}` });
+        return json(res, 400, { error: `请求体不是合法 JSON：${error.message}`, code: "BAD_JSON" });
       }
       try {
         const entry = feedback.record({
@@ -149,15 +168,24 @@ const server = createServer(async (req, res) => {
         });
         return json(res, 201, { ok: true, entry, total: feedback.size });
       } catch (error) {
-        return json(res, 400, { error: error.message });
+        return json(res, 400, { error: error.message, code: "BAD_FIELD" });
       }
     }
 
     if (req.method === "GET" && pathname === "/api/adjustments") {
       if (url.searchParams.get("reload") === "1") feedback.reload();
-      const checklistId = url.searchParams.get("checklistId");
+      const checklistId = url.searchParams.get("checklistId") ?? undefined;
       const checklists = loadChecklists(join(config.appRoot, "checklists"));
-      const checklist = checklists.find((entry) => entry.id === checklistId) ?? checklists[0];
+      // Same rule as /api/inspect: an id that was explicitly given but does not
+      // exist is an error, not a reason to silently advise on another checklist.
+      const checklist = checklistId === undefined ? checklists[0] : checklists.find((entry) => entry.id === checklistId);
+      if (!checklist) {
+        return json(res, 400, {
+          error: `清单 "${checklistId}" 不存在，可用：${checklists.map((entry) => entry.id).join(" / ")}`,
+          code: "UNKNOWN_CHECKLIST",
+          available: checklists.map((entry) => entry.id),
+        });
+      }
       const failuresByRule = new Map();
       for (const report of reportCache.values()) {
         for (const result of report.results ?? []) {
@@ -187,10 +215,35 @@ const server = createServer(async (req, res) => {
     if (req.method === "POST" && pathname === "/api/inspect") {
       const body = await readBody(req, config.maxUploadBytes);
       const { fields, files } = parseMultipart(body, req.headers["content-type"]);
-      const images = files
-        .filter((file) => file.buffer.length > 0)
-        .slice(0, config.maxImages);
-      if (images.length === 0) return json(res, 400, { error: "没有收到图片文件" });
+
+      // Validate the request *before* the SSE stream opens, so the client gets a
+      // real HTTP status instead of a 200 stream whose only content is "fatal".
+      const checklists = loadChecklists(join(config.appRoot, "checklists"));
+      const requestedChecklist = typeof fields.checklistId === "string" && fields.checklistId.length > 0
+        ? fields.checklistId
+        : undefined;
+      if (requestedChecklist && !checklists.some((entry) => entry.id === requestedChecklist)) {
+        return json(res, 400, {
+          error: `清单 "${requestedChecklist}" 不存在，可用：${checklists.map((entry) => entry.id).join(" / ")}`,
+          code: "UNKNOWN_CHECKLIST",
+          available: checklists.map((entry) => entry.id),
+        });
+      }
+
+      const usable = files.filter((file) => file.buffer.length > 0);
+      if (usable.length === 0) return json(res, 400, { error: "没有收到图片文件", code: "BAD_FIELD" });
+
+      const unsupported = usable.filter((file) => detectFormat(file.buffer) === "unknown");
+      if (unsupported.length > 0) {
+        return json(res, 422, {
+          error: `${unsupported.length} 个文件不是支持的图片格式（仅支持 PNG / JPEG / WebP / GIF）：${unsupported.map((file) => file.name).join("、")}`,
+          code: "UNSUPPORTED_FORMAT",
+          files: unsupported.map((file) => file.name),
+        });
+      }
+
+      const images = usable.slice(0, config.maxImages);
+      const dropped = usable.length - images.length;
       const forceMock = fields.mock === "1" || url.searchParams.get("mock") === "1";
       const wantConsistency = fields.consistency !== "0" && url.searchParams.get("consistency") !== "0";
       const send = sse(res);
@@ -200,12 +253,13 @@ const server = createServer(async (req, res) => {
         const { batch, reports, consistency } = await inspectBatch({
           config,
           images,
-          checklistId: fields.checklistId,
+          checklistId: requestedChecklist,
           forceMock,
           cache: reportCache,
           consistency: wantConsistency,
           consistencyCache,
           feedback,
+          dropped,
           onEvent: (event) => send(event),
         });
         const saved = process.env.QC_NO_SAVE === "1" ? null : saveReports(config, batch, reports, consistency);
@@ -229,10 +283,9 @@ const server = createServer(async (req, res) => {
       res.end();
       return undefined;
     }
-    if (String(error.message).includes("上传内容超过上限")) {
-      return json(res, 413, { error: error.message });
-    }
-    return json(res, 500, { error: error.message });
+    // The code decides the status: a malformed request must not look like a
+    // server crash (it used to return 500 for a missing multipart boundary).
+    return json(res, httpStatusFor(error), { error: error.message, code: error.code ?? "INTERNAL_ERROR" });
   }
 });
 

@@ -124,7 +124,7 @@ async function runBatch(options) {
   const paths = collectImages(options.inputs);
   if (paths.length === 0) throw new Error("没有找到可处理的图片");
   const images = paths.map((path) => ({ name: basename(path), buffer: readFileSync(path) }));
-  const feedback = new FeedbackStore(join(config.appRoot, "data", "feedback.jsonl"));
+  const feedback = new FeedbackStore(join(config.dataDir ?? join(config.appRoot, "data"), "feedback.jsonl"));
 
   const summary = publicConfig(config);
   process.stdout.write(
@@ -148,6 +148,8 @@ async function runBatch(options) {
     onEvent: (event) => {
       if (event.type === "image-thinking") process.stdout.write(`  … ${event.name} 分析中\n`);
       if (event.type === "image-cached") process.stdout.write(`  ↺ ${event.name} 缓存命中\n`);
+      if (event.type === "image-error") process.stdout.write(`  ! ${event.name} 失败：${event.message}（${event.code}）\n`);
+      if (event.type === "batch-warning") process.stdout.write(`  ! ${event.message}\n`);
       if (event.type === "consistency-start") process.stdout.write(`  ⇄ 多图一致性比对（${event.images} 张）\n`);
       if (event.type === "consistency-error") process.stdout.write(`  ! 一致性检查跳过：${event.message}\n`);
     },
@@ -156,7 +158,7 @@ async function runBatch(options) {
   process.stdout.write(`\n清单：${batch.checklist.name} v${batch.checklist.version}\n\n`);
   for (const report of reports) {
     if (!report?.ok) {
-      process.stdout.write(`✖ ${report.image.name}  失败：${report.error.message}\n`);
+      process.stdout.write(`✖ ${report?.image?.name ?? "未知图片"}  失败：${report?.error?.message ?? "未知错误"}\n`);
       continue;
     }
     const icon = { pass: "✔", warn: "▲", fail: "✖", unknown: "?" }[report.verdict] ?? "?";
@@ -254,7 +256,7 @@ async function runReview(argv) {
   const action = argv[0] ?? "list";
   const flags = parseFlags(argv.slice(1));
   const config = loadConfig();
-  const store = new FeedbackStore(join(config.appRoot, "data", "feedback.jsonl"));
+  const store = new FeedbackStore(join(config.dataDir ?? join(config.appRoot, "data"), "feedback.jsonl"));
 
   if (action === "list") {
     if (store.size === 0) {

@@ -78,26 +78,35 @@ npm run mcp      # stdio MCP，6 个工具
 npm run install:dsh -- --write   # 把工具接进 DSH 的 web profile
 ```
 
-测试（**42 个离线用例**，不联网、不调模型、不需要 Key）：
+测试（**67 个离线用例**，不联网、不调模型、不需要 Key）：
 
 ```bash
 npm test
 ```
 
+分四组：`core`（图像探测 / 规则引擎 / 提示词 / multipart）、`extensions`（成本、一致性、人机回环、
+编排缓存）、`regressions`（审计发现的缺陷回归，每条对应 `docs/fix-log.md` 里的编号）、`http`
+（真实启动服务，覆盖全部路由、SSE 帧、状态码语义、目录穿越，数据目录指向临时目录）。
+
 另外三个需要环境的验证脚本：
 
 ```bash
-npm run test:mcp    # 手写 JSON-RPC 探针，验证 MCP 握手与工具调用
-npm run test:dsh    # 用 DSH 自己的 MCP SDK 跑一遍握手（证明兼容）
-QC_MOCK=1 npm run test:ui   # 无头 Chrome 驱动真实页面（上传→运行→推翻→建议）
+npm run test:mcp    # 手写 JSON-RPC 探针，验证 MCP 握手与工具调用（mock、离线、带断言）
+npm run test:dsh    # 用 DSH 自己的 MCP SDK 跑一遍握手（需要本机装过 DSH）
+npm run test:ui     # 无头 Chrome 驱动真实页面（上传→运行→推翻→建议）
 ```
+
+`npm run test:ui` 会**自己拉起服务**并指向临时数据目录，默认演示模式，跑完打印 `14/14 项通过`
+并留下截图 `data/ui-e2e.png`；它不写项目的 `data/feedback.jsonl`，可以反复跑。
+要跑真实模型：`QC_MOCK=0 npm run test:ui`（产生费用）；要打已经运行的服务：
+`QC_URL=http://127.0.0.1:4599/ npm run test:ui`。
 
 ## 4. 工作流
 
 ```
 图片字节
   ├─ 1. 测量   本地像素分析：尺寸/画幅/背景白度/主体占比/主体色/明暗离散度  (image/inspect.mjs)
-  ├─ 2. 看图   多模态模型一次性输出 ~30 个结构化事实 + 思考链               (vision/provider.mjs)
+  ├─ 2. 看图   多模态模型一次性输出 43 个结构化事实 + 思考链                (vision/provider.mjs)
   ├─ 3. 判定   清单规则在本地逐条评估：通过 / 不通过 / 未判定                (core/rules.mjs)
   ├─ 4. 复核   叠加质检员的推翻记录（人工判定优先，机器原判保留）            (core/feedback.mjs)
   ├─ 5. 汇总   按严重度加权算分、排序整改建议、给结论                        (core/rules.mjs)
@@ -250,10 +259,11 @@ DSH 的 web profile 会热加载该补丁。图片路径建议传绝对路径；
 已验证：
 
 ```bash
-$ npm run test:mcp    # 手写 JSON-RPC 探针
-initialize → 2025-11-25 {"tools":{"listChanged":false}} vision-qc-agent
-tools/list → qc_list_checklists, qc_inspect_images, qc_recent_reports, qc_threshold_advice, qc_cost_estimate, qc_write_reports
-unknown tool → error -32602: Unknown tool: qc_bogus
+$ npm run test:mcp    # 手写 JSON-RPC 探针（带断言，10/10）
+✔ initialize 返回协议版本与 serverInfo — 2025-11-25
+✔ tools/list 返回 6 个工具
+✔ qc_inspect_images（mock）返回两张图的结论与结构化内容 — 结论：2 张完成 · 平均 94/100
+✔ 空 paths 返回 isError 而不是协议错误
 
 $ npm run test:dsh    # 用 DSH 自己的 @modelcontextprotocol/sdk 跑握手
 ✔ initialize 握手成功（DSH 客户端 SDK）        ✔ tools/list 返回 6 个工具
@@ -273,12 +283,13 @@ vision-qc-agent/
 │   ├── cli.mjs                 batch / review / mcp 三个子命令
 │   ├── config.mjs              配置与凭据解析（env → DSH 凭据库 → .env）
 │   ├── core/
-│   │   ├── facts.mjs           事实目录：清单、提示词、界面共用的词汇表
+│   │   ├── facts.mjs           事实目录：清单、提示词、界面共用的词汇表 + 模型输出归一化
 │   │   ├── rules.mjs           清单校验 + 规则引擎 + 评分 + Markdown 渲染
 │   │   ├── consistency.mjs     多图一致性：CIE76 ΔE 实测 + 语义比对 + 冲突检测
 │   │   ├── feedback.mjs        人机回环：推翻日志 + 可靠性统计 + 阈值建议
 │   │   ├── pricing.mjs         token 核算 + 峰谷费率 + 月度外推
 │   │   ├── pipeline.mjs        编排：并发、缓存、进度事件、落盘
+│   │   ├── errors.mjs          带 code 的错误（HTTP 状态映射的唯一来源）
 │   │   └── multipart.mjs       手写 multipart 解析
 │   ├── image/
 │   │   ├── inspect.mjs         PNG 解码 + 像素指标（含主体色）+ 容器尺寸嗅探
@@ -291,9 +302,22 @@ vision-qc-agent/
 ├── public/                     前端（原生 JS，无构建）
 ├── scripts/                    样例图生成器 + DSH 集成安装器
 ├── samples/ reports/ data/     样例图 · 落盘报告 · 推翻日志
-├── docs/                       研究留档（MCP 实现简报、费率参考）
-└── test/                       42 个离线用例 + 3 个环境验证脚本
+├── docs/                       研究留档（MCP 实现简报、费率参考）+ 审计报告 / 整改记录 / 架构说明
+└── test/                       67 个离线用例 + 3 个环境验证脚本（MCP / DSH / 无头浏览器）
 ```
+
+配置项见 [`.env.example`](.env.example)（全部有默认值，不建 `.env` 也能跑）。
+
+文档索引：
+
+| 文档 | 内容 |
+| --- | --- |
+| [`docs/architecture.md`](docs/architecture.md) | 系统架构图、端到端数据流、关键设计决策、错误语义 |
+| [`docs/audit-report.md`](docs/audit-report.md) | 一次完整的技术审计：16 项缺陷（含证据/触发条件/影响）、风险分级、整改顺序 |
+| [`docs/fix-log.md`](docs/fix-log.md) | 逐项整改记录：改了什么、改前改后差异、验证命令与真实结果 |
+| [`docs/release-checklist.md`](docs/release-checklist.md) | 发布就绪检查与最终验收结论（含明确的能力边界） |
+| [`docs/api-pricing-reference-2026-09-17.md`](docs/api-pricing-reference-2026-09-17.md) | 费率表的来源与核对日期 |
+| [`docs/MCP-IMPLEMENTATION-BRIEF.md`](docs/MCP-IMPLEMENTATION-BRIEF.md) | MCP 协议依据（研究留档） |
 
 ## 11. HTTP API
 
@@ -309,7 +333,20 @@ vision-qc-agent/
 | GET | `/api/adjustments` | 依据推翻记录生成阈值调整建议 |
 | GET | `/api/pricing` | 费率表与外推样例 |
 
-SSE 事件类型：`batch-start` `image-start` `image-measured` `image-thinking` `image-facts`
+错误响应统一为 `{error, code}`，状态码由 `code` 决定（`src/core/errors.mjs` 是唯一映射处）：
+
+| 状态 | code | 触发条件 |
+| --- | --- | --- |
+| 400 | `BAD_MULTIPART` | 不是合法的 multipart 请求 |
+| 400 | `BAD_JSON` / `BAD_FIELD` | 推翻接口的请求体不合法 |
+| 400 | `UNKNOWN_CHECKLIST` | `checklistId` 不存在，响应里带 `available` 列表 |
+| 413 | `PAYLOAD_TOO_LARGE` | 超过 `QC_MAX_UPLOAD_BYTES` |
+| 422 | `UNSUPPORTED_FORMAT` | 上传的文件不是 PNG/JPEG/WebP/GIF，响应里带 `files` 列表 |
+
+超过 `QC_MAX_IMAGES` 的部分不会被静默丢弃：`batch-start` 事件带 `dropped` 计数，并额外发一条
+`batch-warning`。
+
+SSE 事件类型：`batch-start` `batch-warning` `image-start` `image-measured` `image-thinking` `image-facts`
 `image-report` `image-done` `image-cached` `image-error` `consistency-start` `consistency-facts`
 `consistency-report` `consistency-error` `cost` `saved` `batch-end` `complete` `fatal`。
 
@@ -331,8 +368,9 @@ SSE 事件类型：`batch-start` `image-start` `image-measured` `image-thinking`
 > 分数与结论不是单调关系：**三条 medium 同时不通过即判不合格**（所以 86 分也可能不合格）。
 > 分数衡量的是「离标准多远」，结论衡量的是「能不能上线」。
 
-UI 端到端（无头 Chrome 驱动真实页面）：**13/13 项通过** —— 上传 → SSE 渲染 → 成本条 →
-一致性卡片与色差色块 → 点「推翻」提交 → 复核面板刷新 → 阈值建议面板（两图含一致性约 $0.0049）。
+UI 端到端（无头 Chrome 驱动真实页面，测试自己拉起服务、用临时数据目录）：**14/14 项通过** ——
+上传 → SSE 渲染 → 成本条 → 一致性卡片与色差色块 → 点「推翻」提交 → 复核面板刷新 → 阈值建议面板
+→ 推翻记录落到隔离目录（两图含一致性约 $0.0049）。
 
 ## 13. 已知边界（面试被追问时的诚实回答）
 
@@ -340,7 +378,8 @@ UI 端到端（无头 Chrome 驱动真实页面）：**13/13 项通过** —— 
 - **单图色差判断仍是模型主观项**：真正的色差需要色卡/标准光源，单图里只是风险提示；组内色差才用得上实测 ΔE。
 - **ΔE 假设主体色可以用一组平均 RGB 代表**：花色/渐变面料会被平均成一个中间色，这时 ΔE 偏大属于误报。目前靠「模型与实测冲突」提示人工复核来兜住，更严谨的做法是比色直方图而非均值。
 - **样例图是矢量风渲染图**，所以「细节不可辨识」这类判断在样例上偏严格；换成实拍图会更合理。
-- **单次采样的边界会翻盘**：实测同一张 500px 的图，两次调用分别得到 `88 需优化` 和 `87 不合格` —— 分数只差 1，但 `verdict` 因为一条 high 规则的临界通过/不通过而不同。修法有两档：把 `temperature` 降到 0（已默认 0.1），或对边界图跑 2-3 次取多数（成本翻倍，但只对临界样本触发）。
+- **单次采样的边界会翻盘**：实测同一张 1000×1000 的 `01-perfect-white.png`，两次调用分别得到 `88 需优化` 和 `87 不合格`。分数只差 1，差别在于第二轮 `R05 主体占比`（medium）从通过变成不通过（实测 55%），于是 medium 失败累计到 3 条，触发「三条 medium 即不合格」。（原始报告在作者本机的 `reports/` 目录，按 `.gitignore` 不入库；用 `node src/cli.mjs samples --save` 可自己跑出同结构的报告。）修法有两档：把 `temperature` 降到 0（已默认 0.1），或对边界图跑 2-3 次取多数（成本翻倍，但只对临界样本触发）。
+- **模型不回事实字典时按「未判定」处理**：模型偶尔把枚举答成 `"None"`、布尔答成 `"false"` 字符串。这类值会先按 `src/core/facts.mjs` 归一化（大小写/空白/中英文同义），无法归一的一律丢弃，让规则落到「未判定」而不是伪造一条「不通过」；被丢弃的字段名会写进报告的 `model.normalized`。
 - **一致性检查是整组一次调用**：图片多了会顶到上下文与成本上限（当前单批上限 12 张）；也还没做「跨批次」的 SKU 一致性。
 - **推翻日志是本地文件、无并发写保护**：适合单机演示；多人协作要换成带锁的库（SQLite/Postgres）。推翻记录已按「图片名 + 清单」隔离，避免规则编号在各清单间重复导致串味。
 - **阈值建议只到「建议」为止**：故意不自动改清单，避免静默放宽标准。
@@ -348,6 +387,7 @@ UI 端到端（无头 Chrome 驱动真实页面）：**13/13 项通过** —— 
 - **峰谷价按单次请求时刻计**：一次跑批跨过高峰/错峰边界时不会拆分计价，误差上限为单批的一半。
 - **没有做鉴权**：服务只监听 `127.0.0.1`，定位是本地演示。
 - **DSH 集成需要重启 GUI 或等它热加载**：补丁已写入 profile，工具在 DSH 重新加载后出现。
+- **推翻日志会让样例分数漂移**：`data/feedback.jsonl` 是 append-only 的真实记录，里面的推翻会一直作用于同名图片。想回到 README §12 的初始结果，删掉该文件即可（`rm data/feedback.jsonl`），不存在其他隐藏状态。
 
 ## 14. 下一步（如果继续做）
 

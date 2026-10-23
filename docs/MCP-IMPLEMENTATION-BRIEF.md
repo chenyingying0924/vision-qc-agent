@@ -8,9 +8,12 @@ Target: **DeepSeek Harness `@deepseek-ai/dsh-mcp-client` v0.1.5-rc.2**, which us
 `<DSH_INSTALL>/node_modules/`).
 
 Every claim below was read from source and (where marked ✅) verified by running the
-real SDK client / real plugin against a hand-written stdio server. Verification
-artifacts: `mcp-brief-verify/server.mjs`, `drive.mjs`, `edge.mjs`, `plugin-e2e.mjs`,
-`timeout.mjs`.
+real SDK client / real plugin against a hand-written stdio server.
+
+> 验证脚本（`server.mjs` / `drive.mjs` / `edge.mjs` / `plugin-e2e.mjs` / `timeout.mjs`）
+> 是当初临时搭的探针，没有随仓库发布 —— 它们是"研究过程"，不是项目资产。
+> 仓库内可复核的等价物是 `test/mcp-probe.mjs`（手写 JSON-RPC，带断言）和
+> `test/dsh-mcp-compat.mjs`（用 DSH 自己依赖的 SDK 跑握手）。
 
 ---
 

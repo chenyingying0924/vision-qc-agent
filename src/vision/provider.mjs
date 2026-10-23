@@ -13,6 +13,7 @@
  * @module vision-qc-agent/vision/provider
  */
 import { costOf, mergeUsage } from "../core/pricing.mjs";
+import { normalizeModelFacts } from "../core/facts.mjs";
 import { mediaType } from "../image/inspect.mjs";
 import { buildConsistencyPrompt } from "../core/consistency.mjs";
 import { buildRepairPrompt, buildVisionPrompt } from "./prompt.mjs";
@@ -288,11 +289,14 @@ export async function analyzeVision({ config, checklist, measurement, buffer }) 
     throw new VisionError("视觉模型两次都未返回可解析的 JSON 事实对象", "UNPARSEABLE");
   }
   const { summary, confidence, ...fields } = facts;
+  // Coerce/drop values that do not match the fact catalogue before the rules see
+  // them; an out-of-vocabulary answer must not turn into a "product defect".
+  const normalized = normalizeModelFacts(fields);
   // A repair retry is a second billable call: merge both so tokens and money agree.
   const usage = repaired ? mergeUsage(first.usage, answered.usage) : (answered.usage ?? first.usage ?? null);
   const cost = costOf({ provider: config.provider, model: answered.model ?? config.model, usage });
   return {
-    facts: fields,
+    facts: normalized.facts,
     meta: {
       provider: config.provider,
       model: answered.model ?? config.model,
@@ -305,6 +309,7 @@ export async function analyzeVision({ config, checklist, measurement, buffer }) 
       reasoning: answered.reasoning ?? "",
       reason: typeof summary === "string" ? summary : "",
       confidence: typeof confidence === "number" ? confidence : null,
+      normalized: { dropped: normalized.dropped, coerced: normalized.coerced },
       mode: "live",
     },
   };

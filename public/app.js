@@ -103,10 +103,21 @@ function renderChecklistInfo() {
 /* ---------------- upload ---------------- */
 
 function addFiles(fileList) {
-  const incoming = [...fileList].filter((file) => file.type.startsWith("image/"));
+  const all = [...fileList];
+  const incoming = all.filter((file) => file.type.startsWith("image/"));
   const limit = state.config?.maxImages ?? 12;
-  state.files = [...state.files, ...incoming].slice(0, limit);
+  const merged = [...state.files, ...incoming];
+  state.files = merged.slice(0, limit);
+  // Never drop silently: the batch cap and the non-image filter both shrink the list.
+  const overflow = Math.max(0, merged.length - limit);
+  const skipped = all.length - incoming.length;
   renderThumbs();
+  if (overflow > 0 || skipped > 0) {
+    const parts = [];
+    if (overflow > 0) parts.push(`超过单批上限 ${limit} 张，已忽略 ${overflow} 张`);
+    if (skipped > 0) parts.push(`忽略 ${skipped} 个非图片文件`);
+    $("status").textContent = parts.join("；");
+  }
 }
 
 function renderThumbs() {
@@ -324,8 +335,16 @@ async function run() {
   try {
     const response = await fetch("/api/inspect", { method: "POST", body: form });
     if (!response.ok || !response.body) {
+      // The API answers JSON errors ({error, code}); show the message, not raw JSON.
       const detail = await response.text();
-      throw new Error(`服务端拒绝：${detail.slice(0, 200)}`);
+      let message = detail.slice(0, 200);
+      try {
+        const parsed = JSON.parse(detail);
+        if (parsed?.error) message = parsed.error;
+      } catch {
+        /* not JSON — keep the raw text */
+      }
+      throw new Error(`服务端拒绝（${response.status}）：${message}`);
     }
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -365,6 +384,9 @@ function handleEvent(event, thumbUrls) {
   switch (event.type) {
     case "batch-start":
       trace("batch", `开始质检（${event.total} 张）`, `${event.checklist.name} · ${event.model}${event.mock ? "（本地兜底）" : ""}`);
+      break;
+    case "batch-warning":
+      trace(`warn-${Date.now()}`, "请求被部分忽略", event.message, "error");
       break;
     case "image-start":
       trace(`img-${event.index}`, `[${event.index + 1}] ${event.name}`, "排队中…");

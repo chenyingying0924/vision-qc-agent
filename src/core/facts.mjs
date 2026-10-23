@@ -119,3 +119,96 @@ export const MODEL_FACTS = Object.entries(FACT_CATALOG)
   .filter(([, descriptor]) => descriptor.source !== "pipeline")
   .map(([key, descriptor]) => ({ key, ...descriptor }));
 
+/* ------------------------------------------------------------------ */
+/* Model output normalisation                                          */
+/* ------------------------------------------------------------------ */
+
+const BOOL_TRUE = new Set(["true", "1", "yes", "y", "是", "有"]);
+const BOOL_FALSE = new Set(["false", "0", "no", "n", "否", "无"]);
+
+function coerceBool(value) {
+  if (typeof value === "boolean") return { value };
+  if (typeof value === "number" && (value === 0 || value === 1)) return { value: value === 1, coerced: true };
+  if (typeof value === "string") {
+    const token = value.trim().toLowerCase();
+    if (BOOL_TRUE.has(token)) return { value: true, coerced: true };
+    if (BOOL_FALSE.has(token)) return { value: false, coerced: true };
+  }
+  return { dropped: true };
+}
+
+function coerceNumber(value, { min, max } = {}) {
+  const parsed = typeof value === "number"
+    ? value
+    : typeof value === "string" && value.trim() !== ""
+      ? Number(value.replace(/[%％]$/, "").trim())
+      : Number.NaN;
+  if (!Number.isFinite(parsed)) return { dropped: true };
+  let next = parsed;
+  if (min !== undefined) next = Math.max(min, next);
+  if (max !== undefined) next = Math.min(max, next);
+  return { value: next, coerced: next !== parsed };
+}
+
+function coerceEnum(value, allowed) {
+  if (typeof value !== "string") return { dropped: true };
+  const trimmed = value.trim();
+  if (allowed.includes(trimmed)) return { value: trimmed, coerced: trimmed !== value };
+  const squash = (text) => text.trim().toLowerCase().replace(/[\s_]+/g, "-");
+  const needle = squash(trimmed);
+  const hit = allowed.find((candidate) => squash(candidate) === needle);
+  return hit ? { value: hit, coerced: true } : { dropped: true };
+}
+
+/**
+ * Validate model output against the fact catalogue before it reaches the rules.
+ *
+ * The rules compare strictly (`raw === "none"`, `raw === false`), so a model that
+ * answers `"None"`, `"none "` or `"false"` used to be reported as a *product
+ * defect* — "实测 false / 要求 == false / 不通过" — which is both wrong and
+ * unfalsifiable by the reader. Values are coerced when the intent is
+ * unambiguous; anything else is **dropped**, so the rule degrades to `unknown`
+ * ("拿不到数据，请人工复核") instead of inventing a failure.
+ *
+ * @param {object} raw - parsed JSON fields from the model.
+ * @returns {{facts: object, dropped: string[], coerced: Array<{key: string, from: *, to: *}>}}
+ */
+export function normalizeModelFacts(raw = {}) {
+  const facts = {};
+  const dropped = [];
+  const coerced = [];
+  for (const [key, value] of Object.entries(raw ?? {})) {
+    if (value === null || value === undefined) {
+      dropped.push(key);
+      continue;
+    }
+    const spec = FACT_CATALOG[key];
+    // Unknown keys and pipeline-owned facts are not the model's to answer.
+    if (!spec || spec.source === "pipeline") {
+      // `judge` rules read `<fact>Reason` for the model's justification
+      // (`rules.mjs` builds the key dynamically), so those siblings must survive.
+      const base = String(key).endsWith("Reason") ? String(key).slice(0, -"Reason".length) : "";
+      if (base && FACT_CATALOG[base] && (typeof value === "string" || typeof value === "number")) {
+        facts[key] = String(value).slice(0, 500);
+        continue;
+      }
+      dropped.push(key);
+      continue;
+    }
+    const result = spec.kind === "bool"
+      ? coerceBool(value)
+      : spec.kind === "percent"
+        ? coerceNumber(value, { min: 0, max: 100 })
+        : spec.kind === "enum"
+          ? coerceEnum(value, spec.values ?? [])
+          : coerceNumber(value);
+    if (result.dropped) {
+      dropped.push(key);
+      continue;
+    }
+    facts[key] = result.value;
+    if (result.coerced) coerced.push({ key, from: value, to: result.value });
+  }
+  return { facts, dropped, coerced };
+}
+

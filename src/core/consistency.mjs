@@ -144,6 +144,31 @@ function roleOverlap(roles) {
 }
 
 /**
+ * Tolerate casing/whitespace drift in the model's enum answer, but never invent
+ * a value: an unrecognised answer becomes `undefined`, which the caller already
+ * turns into "未判定" rather than "不一致".
+ */
+function lenientEnum(raw, expect) {
+  if (typeof raw !== "string") return raw;
+  const allowed = [].concat(expect);
+  const trimmed = raw.trim();
+  if (allowed.includes(trimmed)) return trimmed;
+  const squash = (text) => text.trim().toLowerCase().replace(/[\s_]+/g, "-");
+  return allowed.find((candidate) => squash(candidate) === squash(trimmed));
+}
+
+/** `sameProduct` from `"false"` / `"否"` instead of a JSON boolean. */
+function lenientBool(raw) {
+  if (typeof raw === "boolean") return raw;
+  if (typeof raw === "string") {
+    const token = raw.trim().toLowerCase();
+    if (["true", "1", "yes", "是"].includes(token)) return true;
+    if (["false", "0", "no", "否"].includes(token)) return false;
+  }
+  return undefined;
+}
+
+/**
  * Evaluate the consistency findings for one SKU group.
  * @param {object} params
  * @param {Array<{name: string, measurement: object, report?: object}>} params.entries
@@ -157,7 +182,9 @@ export function evaluateConsistency({ entries, semantic, meta = {} }) {
   const answer = semantic ?? {};
 
   for (const rule of CONSISTENCY_RULES) {
-    const raw = answer[rule.fact];
+    const raw = rule.fact === "sameProduct"
+      ? lenientBool(answer[rule.fact])
+      : lenientEnum(answer[rule.fact], rule.expect);
     if (raw === undefined || raw === null) {
       rules.push({
         id: rule.id,

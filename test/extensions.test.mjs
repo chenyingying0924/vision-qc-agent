@@ -131,11 +131,17 @@ test("every rate card row is per-1M and carries a source", () => {
       assert.ok(row.cachedInput <= row.input, `${provider}/${model} cache must not cost more than miss`);
     }
   }
-  // The provider the demo actually uses must be an exact row, not a fallback.
-  const rates = ratesFor("deepseek", "deepseek-v4-flash-vision-exp");
-  assert.equal(rates.exact, true);
-  assert.equal(rates.input, 0.3);
-  const unknown = ratesFor("deepseek", "no-such-model");
+  // `ratesFor` applies the DeepSeek off-peak discount based on the current time,
+  // so the assertion must pin the moment — otherwise this test passes or fails
+  // depending on when it runs (UTC 01–04 / 06–10 Mon–Fri are peak hours).
+  const peak = ratesFor("deepseek", "deepseek-v4-flash-vision-exp", { at: "2026-09-17T02:00:00Z" });
+  assert.equal(peak.exact, true);
+  assert.equal(peak.input, 0.3);
+  assert.equal(peak.offPeak, false);
+  const offPeak = ratesFor("deepseek", "deepseek-v4-flash-vision-exp", { at: "2026-09-17T12:00:00Z" });
+  assert.equal(offPeak.input, 0.15);
+  assert.equal(offPeak.offPeak, true);
+  const unknown = ratesFor("deepseek", "no-such-model", { at: "2026-09-17T02:00:00Z" });
   assert.equal(unknown.exact, false);
   assert.match(unknown.note, /未在费率表中找到/);
 });

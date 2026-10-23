@@ -4,17 +4,18 @@
  *
  * @module vision-qc-agent/core/multipart
  */
+import { QcError } from "./errors.mjs";
 
 /**
  * Parse a multipart body.
  * @param {Buffer} buffer - the raw request body.
  * @param {string} contentType - the request's `content-type` header.
  * @returns {{fields: Record<string,string>, files: Array<{name: string, type: string, buffer: Buffer}>}}
- * @throws {Error} when the boundary is missing.
+ * @throws {QcError} `BAD_MULTIPART` when the boundary is missing.
  */
 export function parseMultipart(buffer, contentType) {
   const boundaryMatch = /boundary=("?)([^";]+)\1/.exec(contentType ?? "");
-  if (!boundaryMatch) throw new Error("缺少 multipart boundary");
+  if (!boundaryMatch) throw new QcError("请求缺少 multipart boundary（content-type 应为 multipart/form-data）", "BAD_MULTIPART");
   const boundary = Buffer.from(`--${boundaryMatch[2]}`);
   const fields = {};
   const files = [];

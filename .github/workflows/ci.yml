@@ -20,5 +20,7 @@ jobs:
       - name: Syntax check every module
         run: |
           find src scripts test -name '*.mjs' -print0 | xargs -0 -n1 node --check
-      - name: Unit tests (offline, no API key needed)
+      - name: Unit + HTTP integration tests (offline, no API key needed)
         run: npm test
+      - name: MCP stdio probe (offline, mock mode)
+        run: npm run test:mcp
