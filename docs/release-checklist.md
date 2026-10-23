@@ -105,18 +105,27 @@ CI（`.github/workflows/ci.yml`）：Node 20 + 22 矩阵 → 全量语法检查 
 | 无鉴权 | 📄 已披露 | 只监听 127.0.0.1 |
 | OPT-001～005 | 📄 未做 | 缓存上限、429 退避、prompt 分层、容差常量化、CSP —— 均非当前缺陷 |
 
-### E8. 发布动作（未执行，需确认）
+### E8. 发布动作（已执行）
 
-按约定**没有**执行任何 git 写操作。发布时需要：
+审计与整改阶段**没有**动 git；经确认后执行了一次发布：
 
-```bash
-git add -A
-git commit -m "fix: validate inputs & config, isolate tests, add audit docs"
-git push origin main          # push 失败先怀疑代理：env -u HTTP_PROXY -u HTTPS_PROXY git push
+```
+$ git commit -m "fix: validate inputs and config, isolate tests, add audit docs"
+  75717b6  27 files changed, 2534 insertions(+), 93 deletions(-)
+$ git push origin main
+  ae0a10a..75717b6  main -> main
+$ git fetch && git status -sb
+  ## main            （工作树干净，与 origin/main 同步）
 ```
 
-建议在 README 顶部或仓库 About 加上一句定位（"清单驱动的电商图片质检 Agent，模型只出事实、判罚在本地规则"），
-并把 `docs/architecture.md` 作为架构入口链接进去。
+`data/`、`reports/`、`samples/*.html`、`test/fixtures/` 等被 `.gitignore` 排除的目录**没有**进入提交；
+`.env.example` 未被 `.env` 规则误伤，已正常入库。
+
+**仍需作者确认的两件事**（本机无法验证）：
+
+1. 仓库可见性是否为 **Public** —— `gh` CLI 在本机未登录（`HTTP 401`），只能靠作者打开仓库页确认。
+2. 仓库 About 里补一句定位（"清单驱动的电商图片质检 Agent，模型只出事实、判罚在本地规则"），
+   并把 `docs/architecture.md` 作为架构入口挂上去。
 
 ---
 
